@@ -2,6 +2,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 import torch
 import torch.nn as nn
+from torch.autograd import Variable
+import torch.nn.functional as F
 
 DEBUGGING: bool = True
 # try gpu if available
@@ -30,7 +32,30 @@ def initialize_weights(n_visible: int, n_hidden: int):
 
     return W, b, c
 
-def train(W:np.ndarray, v_bias: np.ndarray, h_bias:np.ndarray, X_inp: np.ndarray, alpha:float):
+
+def save_state(W, v_bias, h_bias):
+    import pickle
+    pickle.dump(W, open("saved_models/Weight.p","wb" ) )
+    pickle.dump(h_bias, open("saved_modes/h.p", "wb" ) )
+    pickle.dump(v_bias, open("saved_modes/v.p", "wb" ) )
+
+
+def sample_prob(v):
+    return torch.relu(torch.sign(v - torch.randn(v.size())))
+
+
+def v_to_h(W, h_bias, v):
+    p_h = F.sigmoid(F.linear(v, W.t(), h_bias))
+    sample_h = sample_prob(p_h)
+    return p_h,sample_h
+
+def h_to_v(W, v_bias, h):
+    p_v = F.sigmoid(F.linear(h, W, v_bias))
+    sample_v = sample_prob(p_v)
+    return p_v,sample_v
+
+
+def train(W:np.ndarray, v_bias: np.ndarray, h_bias:np.ndarray, X_inp: np.ndarray, alpha:float = 0.1, gibbs_sampling:int = 2):
     # assert so that the type is matched and no unexpected result are seen
     # could be used for only debugging approach and be remove later on
     if DEBUGGING:
@@ -49,32 +74,37 @@ def train(W:np.ndarray, v_bias: np.ndarray, h_bias:np.ndarray, X_inp: np.ndarray
     X_inp = torch.tensor(X_inp.copy(), dtype=float)
 
 
-    _h0 = torch.sigmoid(torch.matmul(X_inp, W) + h_bias)
-    h0:torch.Tensor = torch.relu(_h0 - torch.rand(_h0.shape))
+    # calculation of probabilities of hidden units and sample hidden activation vector
+    prob_h0, sample_hk = v_to_h(W, h_bias, X_inp)
+
+    # calculate probability of visible vector from hidden state
+    # and resamble hidden vector
+    for _ in range(gibbs_sampling):
+        prob_vk, sample_vk = h_to_v(W, v_bias, sample_hk)
+        prob_hk, sample_hk = v_to_h(W, h_bias, sample_vk)
 
 
-    _v0 = torch.sigmoid(torch.tensor(torch.matmul(h0, torch.transpose(W, 0, 1)) +  + v_bias))
-    v1 = torch.relu(_v0 - torch.rand(_v0.shape))
-    h1 = torch.sigmoid(torch.matmul(v1, W) + h_bias)
+    # contrastive divergence calculation
+    w_pos_grad = torch.outer(prob_hk, X_inp)
+    w_neg_grad = torch.outer(prob_hk, sample_vk)
 
-    w_pos_grad = torch.matmul(torch.transpose(X_inp.view(X_inp.shape[0], 1), 0, 1).view(X_inp.shape), h0)
-    w_neg_grad = torch.matmul(torch.transpose(v1, 0, 1), h1)
-
-    CD = (w_pos_grad - w_neg_grad) / torch.to_float(v1.shape[0])
+    CD = (w_pos_grad - w_neg_grad)
     
-    update_w:torch.Tensor = W + alpha * CD
-    update_vb = v_bias + alpha * torch.reduce_mean(X_inp - v1, 0)
-    update_hb = h_bias + alpha * torch.reduce_mean(h0 - h1, 0)
+    # update parameters
+    update_w:torch.Tensor = W + alpha * CD.t()
+    update_vb = v_bias + alpha * (X_inp - sample_vk)
+    update_hb = h_bias + alpha * (prob_hk - prob_h0)
 
-    err = X_inp - v1
+    err = X_inp - sample_vk
 
-    err_sum = torch.reduce_mean(err * err)
+    err_sum = torch.mean(err * err)
 
     return update_w.detach().cpu().numpy(), v_bias.detach().cpu().numpy(), h_bias.detach().cpu().numpy()
 
 if __name__ == "__main__":
-    n_visible = 4
-    n_hidden = 10
+    # TODO: Implement actual algorithm using actual dataset
+    n_visible = 784
+    n_hidden = 500
 
     #learning rate 
     alpha = 0.1
@@ -82,10 +112,4 @@ if __name__ == "__main__":
     # intialize weight
     W, v_bias, h_bias = initialize_weights(n_visible, n_hidden)
 
-
-    W, v_bias, h_bias = train(W, v_bias, h_bias, np.array([0, 1, 0, 1]), alpha)
-
-    pass
-    
-
-
+    W, v_bias, h_bias = train(W, v_bias, h_bias, np.array([0, 1, 0, 1] * (784 // 4)), alpha)    
