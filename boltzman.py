@@ -4,6 +4,8 @@ import torch
 import torch.nn as nn
 from torch.autograd import Variable
 import torch.nn.functional as F
+from torchvision import datasets, transforms
+import torchvision
 
 DEBUGGING: bool = True
 # try gpu if available
@@ -26,26 +28,26 @@ def initialize_weights(n_visible: int, n_hidden: int):
             b-> bias of the visible unit
             c-> bias of hidden unit
     """
-    W = np.zeros([n_visible, n_hidden], dtype=np.float64)
-    b = np.zeros([n_visible], dtype=np.float64)
-    c = np.zeros([n_hidden], dtype=np.float64)
+    W = np.zeros([n_visible, n_hidden])
+    b = np.zeros([n_visible])
+    c = np.zeros([n_hidden])
 
     return W, b, c
 
 
 def save_state(W, v_bias, h_bias):
     import pickle
-    pickle.dump(W, open("saved_models/Weight.p","wb" ) )
-    pickle.dump(h_bias, open("saved_modes/h.p", "wb" ) )
-    pickle.dump(v_bias, open("saved_modes/v.p", "wb" ) )
+    pickle.dump(W, open("saved_models/Weight.p","wb" ))
+    pickle.dump(h_bias, open("saved_models/h.p", "wb" ))
+    pickle.dump(v_bias, open("saved_models/v.p", "wb" ))
 
 
 def sample_prob(v):
     return torch.relu(torch.sign(v - torch.randn(v.size())))
 
 
-def v_to_h(W, h_bias, v):
-    p_h = F.sigmoid(F.linear(v, W.t(), h_bias))
+def v_to_h(W:torch.Tensor, h_bias:torch.Tensor, v:torch.Tensor):
+    p_h = F.sigmoid(F.linear(v.double(), W.t().double(), h_bias.double()))
     sample_h = sample_prob(p_h)
     return p_h,sample_h
 
@@ -68,30 +70,32 @@ def train(W:np.ndarray, v_bias: np.ndarray, h_bias:np.ndarray, X_inp: np.ndarray
     assert W.shape[0] == v_bias.shape[0], "Size mismatch between W and visible bias"
 
     # numpy to torch tensor
-    W = torch.tensor(W.copy(), dtype=float)
-    v_bias = torch.tensor(v_bias.copy(), dtype=float)
-    h_bias= torch.tensor(h_bias.copy(), dtype=float)
-    X_inp = torch.tensor(X_inp.copy(), dtype=float)
+    W = torch.tensor(W.copy())
+    v_bias = torch.tensor(v_bias.copy())
+    h_bias= torch.tensor(h_bias.copy())
+    # X_inp = torch.tensor(X_inp.copy(), dtype=float)
 
 
     # calculation of probabilities of hidden units and sample hidden activation vector
     prob_h0, sample_hk = v_to_h(W, h_bias, X_inp)
 
     # calculate probability of visible vector from hidden state
-    # and resamble hidden vector
+    # and resample to hidden vector
+    # # continue this process for gibbs sampling time 
     for _ in range(gibbs_sampling):
         prob_vk, sample_vk = h_to_v(W, v_bias, sample_hk)
         prob_hk, sample_hk = v_to_h(W, h_bias, sample_vk)
 
 
     # contrastive divergence calculation
-    w_pos_grad = torch.outer(prob_hk, X_inp)
-    w_neg_grad = torch.outer(prob_hk, sample_vk)
+    w_pos_grad = torch.matmul(prob_hk.t().float(), X_inp).t()
+    w_neg_grad = torch.matmul(prob_hk.t().float(), sample_vk.float()).t()
 
     CD = (w_pos_grad - w_neg_grad)
     
-    # update parameters
-    update_w:torch.Tensor = W + alpha * CD.t()
+    # update parameters according to rules
+    # refer to https://mohitd.github.io/2017/11/25/rbms.html for more details
+    update_w:torch.Tensor = W + alpha * CD
     update_vb = v_bias + alpha * (X_inp - sample_vk)
     update_hb = h_bias + alpha * (prob_hk - prob_h0)
 
@@ -109,7 +113,29 @@ if __name__ == "__main__":
     #learning rate 
     alpha = 0.1
 
+
+    transform = transforms.Compose([
+        transforms.ToTensor(),
+        transforms.Resize((28, 28)),
+        transforms.Grayscale()
+    ])
+    handwritten_data = torchvision.datasets.ImageFolder("./data/handwrittendataset/Train/", transform)
+    test_data = torchvision.datasets.ImageFolder("./data/handwrittendataset/Test/", transform)
+
     # intialize weight
     W, v_bias, h_bias = initialize_weights(n_visible, n_hidden)
+    
+    save_state(W, v_bias, h_bias)
+    
+    for _ in range(10):
+        for i, (data, target) in enumerate(handwritten_data):
+            data = Variable(data.view((-1 ,784)))
+            sample_data = data.bernoulli()
 
-    W, v_bias, h_bias = train(W, v_bias, h_bias, np.array([0, 1, 0, 1] * (784 // 4)), alpha)    
+            # update throughout the epoch
+            W, v_bias, h_bias = train(W, v_bias, h_bias, data, gibbs_sampling=1)
+
+
+        print(f"Epoch {i + 1} completed")
+    
+    save_state(W, v_bias, h_bias)

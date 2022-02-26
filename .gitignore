@@ -3,3 +3,5 @@ env/
 data/
 .ipynb_checkpoints/
 __pycache__/
+test.ipynb
+rbm_pytorch_class.ipynb
