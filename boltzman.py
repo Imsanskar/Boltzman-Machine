@@ -11,12 +11,6 @@ DEBUGGING: bool = True
 # try gpu if available
 device = "cuda" if torch.cuda.is_available()  else "cpu"
 
-
-# TODO: Forward and backward propagation
-# TODO: Dataset and dataset laoder, if it is in text may need to tokenize it to one hot vector
-# TODO: Test it on a validation set, search it or generate it yourself
-# TODO: Presentation
-
 def initialize_weights(n_visible: int, n_hidden: int):
     """
         Initialize weight matrices of appropriate size 
@@ -40,6 +34,16 @@ def save_state(W, v_bias, h_bias):
     pickle.dump(W, open("saved_models/Weight.p","wb" ))
     pickle.dump(h_bias, open("saved_models/h.p", "wb" ))
     pickle.dump(v_bias, open("saved_models/v.p", "wb" ))
+
+
+def load_from_file():
+    import pickle
+    W=pickle.load(open("saved_models/Weight.p", "rb" ))
+    hb=pickle.load(open("saved_models/h.p", "rb" ))
+    vb=pickle.load(open("saved_models/v.p", "rb" ))
+
+    return W, hb, vb
+
 
 
 def sample_prob(v):
@@ -105,6 +109,32 @@ def train(W:np.ndarray, v_bias: np.ndarray, h_bias:np.ndarray, X_inp: np.ndarray
 
     return update_w.detach().cpu().numpy(), v_bias.detach().cpu().numpy(), h_bias.detach().cpu().numpy()
 
+
+def predict(W, v_bias, h_bias, X_inp, gibbs_sampling = 3):
+    # assert size check
+    assert W.shape[1] == h_bias.shape[0], "Size mismatch between W and hidden bias"
+    assert W.shape[0] == v_bias.shape[0], "Size mismatch between W and visible bias"
+
+    # numpy to torch tensor
+    W = torch.tensor(W.copy())
+    v_bias = torch.tensor(v_bias.copy())
+    h_bias= torch.tensor(h_bias.copy())
+    # X_inp = torch.tensor(X_inp.copy(), dtype=float)
+
+
+    # calculation of probabilities of hidden units and sample hidden activation vector
+    prob_h0, sample_hk = v_to_h(W, h_bias, X_inp)
+
+    # calculate probability of visible vector from hidden state
+    # and resample to hidden vector
+    # # continue this process for gibbs sampling time 
+    for _ in range(gibbs_sampling):
+        prob_vk, sample_vk = h_to_v(W, v_bias, sample_hk)
+        prob_hk, sample_hk = v_to_h(W, h_bias, sample_vk)
+
+    return sample_vk
+
+    
 if __name__ == "__main__":
     # TODO: Implement actual algorithm using actual dataset
     n_visible = 784
@@ -119,23 +149,55 @@ if __name__ == "__main__":
         transforms.Resize((28, 28)),
         transforms.Grayscale()
     ])
-    handwritten_data = torchvision.datasets.ImageFolder("./data/handwrittendataset/Train/", transform)
+    mnist_data = datasets.MNIST(
+        './data',
+        train=True,
+        transform=transforms.Compose(
+        [transforms.ToTensor()])
+    )
     test_data = torchvision.datasets.ImageFolder("./data/handwrittendataset/Test/", transform)
 
     # intialize weight
     W, v_bias, h_bias = initialize_weights(n_visible, n_hidden)
-    
-    save_state(W, v_bias, h_bias)
-    
-    for _ in range(10):
-        for i, (data, target) in enumerate(handwritten_data):
-            data = Variable(data.view((-1 ,784)))
-            sample_data = data.bernoulli()
+    print(f"Total dataset size: {len(mnist_data)}")
+    TRAIN = True
+    if TRAIN:
+        W, h_bias, v_bias = load_from_file()
+        for i in range(50):
+            for _, (data, target) in enumerate(mnist_data):
+                data = Variable(data.view((-1 ,784)))
+                sample_data = data.bernoulli()
 
-            # update throughout the epoch
-            W, v_bias, h_bias = train(W, v_bias, h_bias, data, gibbs_sampling=1)
+                # update throughout the epoch
+                W, v_bias, h_bias = train(W, v_bias, h_bias, data, gibbs_sampling=1)
 
 
-        print(f"Epoch {i + 1} completed")
-    
-    save_state(W, v_bias, h_bias)
+            print(f"Epoch {i + 1} completed")
+        
+            save_state(W, v_bias, h_bias)
+
+        # W, h_bias, v_bias = load_from_file()
+        print(W.shape, h_bias.shape, v_bias.shape)
+        plt.figure(figsize=(20, 20))
+
+        for i, (data, target) in enumerate(mnist_data):
+            plt.subplot(5, 5, i + 1)
+            
+            image_1 = data.view((28, 28))
+            image_2 = predict(W, v_bias, h_bias, data[0].view(784)).view((28, 28))
+            image_show = torch.cat(
+                (image_1, image_2),
+                1
+            )
+        #     plt.imshow(data[0].view(28, 28).detach().cpu().numpy(), cmap=plt.cm.RdBu,
+        #                interpolation='nearest', vmin=-2.5, vmax=2.5)
+        #     plt.subplot(10, 20, i + 1)
+        #     plt.imshow(rbm.forward(data[0].view(784))[0].view((28, 28)).detach().cpu().numpy(), cmap=plt.cm.RdBu,
+        #                interpolation='nearest', vmin=-2.5, vmax=2.5)
+            plt.imshow(image_show.detach().cpu().numpy(), cmap=plt.cm.RdBu,
+                    interpolation='nearest', vmin=-2.5, vmax=2.5)
+            plt.axis('off')
+            
+            if i >= 24:
+                break
+        plt.savefig("output.png")
