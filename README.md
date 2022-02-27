@@ -28,3 +28,11 @@ To test the result of the boltzman machine, run `python boltzman_test.py` and it
 [Restricted Boltzman Machine](https://mohitd.github.io/2017/11/25/rbms.html)  
 [Wikipedia](https://en.wikipedia.org/wiki/Boltzmann_machine)  
 [Introduction to RBM](https://youtu.be/Fkw0_aAtwIw)
+  
+  
+
+
+# Contributors
+- [Sanskar Amgain](github.com/Imsanskar/)
+- [Tilak Chad](github.com/TilakChad/)
+- [Udeshya Dhungana](github.com/udeshyaDhungana/)
