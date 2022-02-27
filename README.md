@@ -33,6 +33,6 @@ To test the result of the boltzman machine, run `python boltzman_test.py` and it
 
 
 # Contributors
-- [Sanskar Amgain](github.com/Imsanskar/)
-- [Tilak Chad](github.com/TilakChad/)
-- [Udeshya Dhungana](github.com/udeshyaDhungana/)
+- [Sanskar Amgain](https://github.com/Imsanskar/)
+- [Tilak Chad](https://github.com/TilakChad/)
+- [Udeshya Dhungana](https://github.com/udeshyaDhungana/)
