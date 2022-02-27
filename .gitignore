@@ -5,3 +5,4 @@ data/
 __pycache__/
 test.ipynb
 rbm_pytorch_class.ipynb
+loss.csv
